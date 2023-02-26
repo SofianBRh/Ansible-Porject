@@ -1,0 +1,18 @@
+---
+mastodon_version: 3.4.1
+mastodon_hostname: "mastodon.example.com"
+mastodon_email_domain: "example.com"
+mastodon_secret_key_base: "super_secret_key_base"
+mastodon_db_name: "mastodon_production"
+mastodon_db_username: "mastodon"
+mastodon_db_password: "mastodon_password"
+mastodon_redis_password: "redis_password"
+mastodon_smtp_server: "smtp.example.com"
+mastodon_smtp_port: 587
+mastodon_smtp_username: "smtp_username"
+mastodon_smtp_password: "smtp_password"
+mastodon_smtp_authentication: "login"
+mastodon_smtp_starttls_auto: "true"
+mastodon_admin_email: "admin@example.com"
+mastodon_admin_username: "admin"
+mastodon_admin_password: "admin_password"

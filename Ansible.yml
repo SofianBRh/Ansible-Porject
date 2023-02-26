@@ -1,0 +1,253 @@
+---
+- name: Mastodon Installation Playbook
+  hosts: ansible
+  become: true
+
+  vars:
+    # Mastodon variables
+    mastodon_version: "3.4.0"
+    mastodon_git_url: "https://github.com/tootsuite/mastodon.git"
+    mastodon_user: mastodon
+    mastodon_home: "/home/mastodon"
+    mastodon_rails_env: "production"
+    mastodon_instance_name: "Mastodon Instance"
+    mastodon_secret_key_base: "mysecretkey"
+
+    # PostgreSQL variables
+    postgres_version: "13"
+    postgres_user: postgres
+    postgres_data_dir: "/var/lib/postgresql/{{ postgres_version }}/main"
+    postgres_conf_file: "/etc/postgresql/{{ postgres_version }}/main/postgresql.conf"
+    postgres_hba_file: "/etc/postgresql/{{ postgres_version }}/main/pg_hba.conf"
+    postgres_listen_address: "localhost"
+    postgres_listen_port: "5432"
+    postgres_database_name: "mastodon_production"
+    postgres_database_user: "mastodon"
+    postgres_database_password: "mastodonpassword"
+
+    # Postfix variables
+    postfix_hostname: "mastodon.example.com"
+    postfix_relayhost: "smtp.gmail.com:587"
+    postfix_tls_cert_file: "/etc/postfix/tls/smtp.gmail.com.crt"
+    postfix_tls_key_file: "/etc/postfix/tls/smtp.gmail.com.key"
+    postfix_tls_ca_cert_file: "/etc/postfix/tls/rootCA.crt"
+    postfix_relay_user: "your-email@gmail.com"
+    postfix_relay_password: "your-email-password"
+
+  tasks:
+
+    - name: Install necessary packages
+      apt:
+        name: "{{ item }}"
+        state: present
+      with_items:
+        - git
+        - python3-pip
+        - python3-venv
+        - libssl-dev
+        - libpq-dev
+        - postgresql-client
+
+    - name: Create Mastodon user
+      user:
+        name: "{{ mastodon_user }}"
+        shell: /bin/bash
+        home: "{{ mastodon_home }}"
+        system: yes
+        createhome: yes
+
+    - name: Clone Mastodon repository
+      git:
+        repo: "{{ mastodon_git_url }}"
+        dest: "{{ mastodon_home }}/live"
+        version: "{{ mastodon_version }}"
+
+    - name: Install Mastodon dependencies
+      shell: |
+        cd {{ mastodon_home }}/live
+        bundle config set deployment 'true'
+        bundle install --deployment --without development test
+
+    - name: Create Mastodon environment variables
+      copy:
+        dest: "{{ mastodon_home }}/.env.production"
+        content: |
+          RAILS_ENV={{ mastodon_rails_env }}
+          NODE_ENV=production
+          LOCAL_DOMAIN={{ mastodon_instance_name }}
+          LOCAL_HTTPS=true
+          SECRET_KEY_BASE={{ mastodon_secret_key_base }}
+          DB_HOST=localhost
+          DB_NAME={{ postgres_database_name }}
+          DB_USER={{ postgres_database_user }}
+          DB_PASS={{ postgres_database_password }}
+          SMTP_SERVER={{ postfix_hostname }}
+          SMTP_PORT=587
+          SMTP_LOGIN={{ postfix_relay_user }}
+          SMTP_PASSWORD={{ postfix_relay_password }}
+
+    - name: Set up PostgreSQL server
+      hosts: postgres
+      become: true
+      vars:
+        postgres_password: "{{ postgres_database_password }}"
+      tasks:
+        - name: Install PostgreSQL server
+          apt:
+            name: postgresql-{{ postgres_version }}
+            state: present
+    - name: Create PostgreSQL user
+  postgresql_user:
+    name: "{{ postgres_user }}"
+    password: "{{ postgres_password }}"
+    encrypted: yes
+
+- name: Create Mastodon PostgreSQL database
+  postgresql_db:
+    name: "{{ mastodon_db_name }}"
+    owner: "{{ postgres_user }}"
+
+- name: Install Mastodon dependencies
+  become: true
+  apt:
+    name:
+      - imagemagick
+      - ffmpeg
+      - libpq-dev
+      - libxml2-dev
+      - libxslt1-dev
+      - file
+      - git
+      - g++
+      - libprotobuf-dev
+      - protobuf-compiler
+      - pkg-config
+      - nodejs
+      - gcc
+      - autoconf
+      - automake
+      - bison
+      - libssl-dev
+      - libyaml-dev
+      - libreadline-dev
+      - zlib1g-dev
+      - libncurses5-dev
+      - libffi-dev
+      - libgdbm-dev
+      - nginx
+    update_cache: yes
+
+- name: Create Mastodon user
+  user:
+    name: "{{ mastodon_user }}"
+    shell: /bin/bash
+    home: "{{ mastodon_home }}"
+
+- name: Clone Mastodon Git repository
+  git:
+    repo: "{{ mastodon_git_repo }}"
+    dest: "{{ mastodon_home }}/live"
+    version: "{{ mastodon_git_version }}"
+    force: yes
+    clone: yes
+
+- name: Install RVM for Mastodon user
+  become_user: "{{ mastodon_user }}"
+  shell: |
+    gpg2 --keyserver hkp://pool.sks-keyservers.net --recv-keys 409B6B1796C275462A1703113804BB82D39DC0E3 7D2BAF1CF37B13E2069D6956105BD0E739499BDB
+    \curl -sSL https://get.rvm.io | bash -s stable
+    source ~/.rvm/scripts/rvm
+    rvm install 2.7.4
+    rvm use 2.7.4 --default
+
+- name: Install Mastodon Ruby dependencies
+  become_user: "{{ mastodon_user }}"
+  shell: |
+    cd {{ mastodon_home }}/live
+    gem install bundler -v "{{ mastodon_bundler_version }}"
+    bundle install -j$(nproc) --deployment --without development test
+
+- name: Create Mastodon .env.production file
+  template:
+    src: templates/mastodon_env.j2
+    dest: "{{ mastodon_home }}/live/.env.production"
+    mode: 0640
+
+- name: Create Mastodon systemd unit file
+  become: true
+  template:
+    src: templates/mastodon_systemd_unit.j2
+    dest: /etc/systemd/system/mastodon-web.service
+    mode: 0644
+
+- name: Reload systemd
+  become: true
+  systemd:
+    daemon_reload: yes
+
+- name: Enable Mastodon systemd service
+  become: true
+  systemd:
+    name: mastodon-web.service
+    enabled: yes
+
+- name: Start Mastodon systemd service
+  become: true
+  systemd:
+    name: mastodon-web.service
+    state: started
+
+- name: Install nginx SSL certificate
+  become: true
+  copy:
+    src: "{{ nginx_ssl_cert_path }}"
+    dest: "/etc/nginx/ssl/{{ mastodon_domain }}.crt"
+    owner: root
+    group: root
+    mode: 0644
+- name: Create PostgreSQL user
+  postgresql_user:
+    name: "{{ postgres_username }}"
+    password: "{{ postgres_password }}"
+
+- name: Create PostgreSQL database
+  postgresql_db:
+    name: "{{ postgres_db }}"
+    owner: "{{ postgres_username }}"
+
+- name: Install nginx SSL key
+  become: true
+  copy:
+    src: "{{ nginx_ssl_key_path }}"
+    dest: "/etc/ssl/private/{{ mastodon_domain }}.key"
+    mode: '0600'
+
+- name: Install nginx SSL certificate
+  become: true
+  copy:
+    src: "{{ nginx_ssl_cert_path }}"
+    dest: "/etc/ssl/certs/{{ mastodon_domain }}.crt"
+    mode: '0644'
+
+- name: Configure nginx
+  become: true
+  template:
+    src: templates/nginx.conf.j2
+    dest: /etc/nginx/sites-available/mastodon
+  notify:
+    - Reload nginx
+
+- name: Enable nginx site
+  become: true
+  file:
+    src: "/etc/nginx/sites-available/mastodon"
+    dest: "/etc/nginx/sites-enabled/mastodon"
+    state: "link"
+  notify:
+    - Reload nginx
+
+- name: Reload nginx
+  become: true
+  service:
+    name: nginx
+    state: reloaded
