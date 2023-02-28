@@ -37,7 +37,7 @@ To run the playbook, execute the following command on the control node:
 
 ---
 
-ansible-playbook -i hosts.ini mastodon.yml
+ansible-playbook -i hosts.ini ansible.yml
 
 --- 
 This will run the playbook and configure the target node(s) with Mastodon.
